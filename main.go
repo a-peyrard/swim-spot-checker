@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/a-peyrard/swim-spot-checker/internal/http"
+	"github.com/a-peyrard/swim-spot-checker/internal/llm"
+	"github.com/a-peyrard/swim-spot-checker/internal/swim"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
@@ -12,8 +16,10 @@ import (
 )
 
 const (
-	swimSchoolURL                 = "https://andersonswim.com/"
-	noAvailabilityPatternsDefault = "No Single Lessons"
+	swimSchoolURL   = "https://andersonswim.com/"
+	previousContent = "/tmp/previous_content"
+	startMarker     = "Welcome to Anderson’s Swim School"
+	endMarker       = "Average email response time"
 )
 
 var (
@@ -33,16 +39,26 @@ var swimSpotCheckerCmd = &cobra.Command{
 			return handleCompletion(shell, cmd)
 		}
 
-		noAvailabilityPatternsRaw := os.Getenv("NO_AVAILABILITY_PATTERNS")
-		if noAvailabilityPatternsRaw == "" {
-			noAvailabilityPatternsRaw = noAvailabilityPatternsDefault
+		log.Info().Msg("Initialize model...")
+		var apiKey = os.Getenv("LLM_API_KEY")
+		cfg := llm.Config{
+			ModelName: "gemini-1.5-flash",
+			ApiKey:    apiKey,
 		}
-		noAvailabilityPatterns := strings.Split(noAvailabilityPatternsRaw, ",")
+		var model *llm.Model
+		model, err = llm.NewGoogleAIModel(context.Background(), cfg)
+		if err != nil {
+			log.Error().Err(err).Msg("unable to initialize model")
+			return
+		}
 
 		log.Info().Msg("Checking for spots...")
-		var startExecTime = time.Now()
-		var foundSpot bool
-		foundSpot, err = checkAvailability(swimSchoolURL, noAvailabilityPatterns)
+		var (
+			startExecTime = time.Now()
+			foundSpot     bool
+			explanation   string
+		)
+		foundSpot, explanation, err = checkAvailability(swimSchoolURL, model)
 		if err != nil {
 			return
 		}
@@ -50,7 +66,7 @@ var swimSpotCheckerCmd = &cobra.Command{
 		if foundSpot {
 			log.Info().Msgf("Spot found (in %s)", time.Since(startExecTime))
 			if !skipNotifications {
-				notifySpotFound()
+				notifySpotFound(explanation)
 			}
 		} else {
 			log.Info().Msgf("No spot found (in %s)", time.Since(startExecTime))
@@ -60,27 +76,85 @@ var swimSpotCheckerCmd = &cobra.Command{
 	},
 }
 
-func notifySpotFound() {
-	log.Info().Msg("Sending notification")
+func notifySpotFound(explanation string) {
+	log.Info().Msgf("Sending notification, we found availability: %s", explanation)
 	// Send a notification to your phone
 	// fixme: use twilio or something
 }
 
-func checkAvailability(url string, patterns []string) (foundSpot bool, err error) {
-	var page string
-	page, err = http.ScrapURL(url)
+func checkAvailability(url string, model *llm.Model) (foundSpot bool, explanation string, err error) {
+	var (
+		oldContent string
+		newContent string
+	)
+	newContent, err = extractContentFromURL(url)
 	if err != nil {
 		return
 	}
 
-	foundSpot = true
-	for _, pattern := range patterns {
-		if strings.Contains(page, pattern) {
-			foundSpot = false
-			break
-		}
+	oldContent, err = loadPreviousContent()
+	if err != nil {
+		return
 	}
 
+	if oldContent == "" {
+		log.Info().Msgf("No previous content found, saving current content")
+		err = storePreviousContent(newContent)
+		return
+	}
+
+	if oldContent == newContent {
+		log.Info().Msg("No change in content")
+		return
+	}
+
+	foundSpot, explanation, err = swim.CheckAvailability(context.Background(), model, oldContent, newContent)
+	if err == nil {
+		log.Info().Msgf("Availability check result: %t", foundSpot)
+		log.Info().Msgf("Explanation: %s", explanation)
+
+		err = storePreviousContent(newContent)
+	}
+
+	return
+}
+
+func extractContentFromURL(url string) (content string, err error) {
+	content, err = http.ScrapURL(url)
+	if err != nil {
+		return
+	}
+
+	startIndex := strings.Index(content, startMarker)
+	if startIndex == -1 {
+		err = fmt.Errorf("start marker not found")
+		return
+	}
+	endIndex := strings.Index(content, endMarker)
+	if endIndex == -1 {
+		err = fmt.Errorf("end marker not found")
+		return
+	}
+	content = strings.TrimSpace(content[startIndex+len(startMarker) : endIndex])
+
+	return
+}
+
+func loadPreviousContent() (content string, err error) {
+	var b []byte
+	b, err = os.ReadFile(previousContent)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
+		return
+	}
+	content = string(b)
+	return
+}
+
+func storePreviousContent(content string) (err error) {
+	err = os.WriteFile(previousContent, []byte(content), 0644)
 	return
 }
 
