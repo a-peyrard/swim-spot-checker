@@ -10,6 +10,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
+	"github.com/twilio/twilio-go"
+	openapi "github.com/twilio/twilio-go/rest/api/v2010"
 	"os"
 	"strings"
 	"time"
@@ -77,9 +79,19 @@ var swimSpotCheckerCmd = &cobra.Command{
 }
 
 func notifySpotFound(explanation string) {
-	log.Info().Msgf("Sending notification, we found availability: %s", explanation)
-	// Send a notification to your phone
-	// fixme: use twilio or something
+	client := twilio.NewRestClient()
+
+	params := &openapi.CreateMessageParams{}
+	params.SetTo(os.Getenv("TO_PHONE_NUMBER"))
+	params.SetFrom(os.Getenv("TWILIO_PHONE_NUMBER"))
+	params.SetBody(fmt.Sprintf("%s\n\nGo check it out: %s", explanation, swimSchoolURL))
+
+	_, err := client.Api.CreateMessage(params)
+	if err != nil {
+		log.Err(err).Msg("Failed to send SMS")
+	} else {
+		log.Info().Msg("SMS sent successfully!")
+	}
 }
 
 func checkAvailability(url string, model *llm.Model) (foundSpot bool, explanation string, err error) {
