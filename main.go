@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"github.com/a-peyrard/swim-spot-checker/internal/http"
 	"github.com/a-peyrard/swim-spot-checker/internal/llm"
+	"github.com/a-peyrard/swim-spot-checker/internal/notification"
 	"github.com/a-peyrard/swim-spot-checker/internal/swim"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
-	"github.com/twilio/twilio-go"
-	openapi "github.com/twilio/twilio-go/rest/api/v2010"
 	"os"
 	"strings"
 	"time"
@@ -54,6 +53,12 @@ var swimSpotCheckerCmd = &cobra.Command{
 			return
 		}
 
+		notifier := notification.NewEmailNotifier()
+		recipient := notification.Recipient{
+			PhoneNumber: os.Getenv("TO_PHONE_NUMBER"),
+			Carrier:     os.Getenv("TO_PHONE_CARRIER"),
+		}
+
 		log.Info().Msg("Checking for spots...")
 		var (
 			startExecTime = time.Now()
@@ -68,30 +73,35 @@ var swimSpotCheckerCmd = &cobra.Command{
 		if foundSpot {
 			log.Info().Msgf("Spot found (in %s)", time.Since(startExecTime))
 			if !skipNotifications {
-				notifySpotFound(explanation)
+				err = notifier.Text(
+					notification.Sms{Body: fmt.Sprintf("%s\n\nGo check it out: %s", explanation, swimSchoolURL)},
+					recipient,
+				)
+				if err != nil {
+					log.Err(err).Msg("Failed to send SMS")
+				} else {
+					log.Info().Msg("SMS sent successfully!")
+				}
 			}
 		} else {
 			log.Info().Msgf("No spot found (in %s)", time.Since(startExecTime))
+
+			// fixme: we don't want notifications here!
+			if !skipNotifications {
+				err = notifier.Text(
+					notification.Sms{Body: "nothing new"},
+					recipient,
+				)
+				if err != nil {
+					log.Err(err).Msg("Failed to send SMS")
+				} else {
+					log.Info().Msg("SMS sent successfully!")
+				}
+			}
 		}
 
 		return
 	},
-}
-
-func notifySpotFound(explanation string) {
-	client := twilio.NewRestClient()
-
-	params := &openapi.CreateMessageParams{}
-	params.SetTo(os.Getenv("TO_PHONE_NUMBER"))
-	params.SetFrom(os.Getenv("TWILIO_PHONE_NUMBER"))
-	params.SetBody(fmt.Sprintf("%s\n\nGo check it out: %s", explanation, swimSchoolURL))
-
-	_, err := client.Api.CreateMessage(params)
-	if err != nil {
-		log.Err(err).Msg("Failed to send SMS")
-	} else {
-		log.Info().Msg("SMS sent successfully!")
-	}
 }
 
 func checkAvailability(url string, model *llm.Model) (foundSpot bool, explanation string, err error) {
