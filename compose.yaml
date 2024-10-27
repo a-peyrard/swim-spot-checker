@@ -1,0 +1,10 @@
+services:
+  swim-spot-checker:
+    image: augustinpeyrard/swim-spot-checker:latest
+    environment:
+      LLM_API_KEY: ${LLM_API_KEY}
+      TO_PHONE_NUMBER: ${TO_PHONE_NUMBER}
+      TO_PHONE_CARRIER: ${TO_PHONE_CARRIER}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SCHEDULE: ${SCHEDULE}

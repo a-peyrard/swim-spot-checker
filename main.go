@@ -2,25 +2,20 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"github.com/a-peyrard/swim-spot-checker/internal/http"
 	"github.com/a-peyrard/swim-spot-checker/internal/llm"
 	"github.com/a-peyrard/swim-spot-checker/internal/notification"
 	"github.com/a-peyrard/swim-spot-checker/internal/swim"
+	"github.com/robfig/cron/v3"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/cobra"
 	"os"
-	"strings"
 	"time"
 )
 
 const (
-	swimSchoolURL   = "https://andersonswim.com/"
-	previousContent = "/tmp/previous_content"
-	startMarker     = "Welcome to Anderson’s Swim School"
-	endMarker       = "Average email response time"
+	swimSchoolURL = "https://andersonswim.com/"
 )
 
 var (
@@ -59,124 +54,70 @@ var swimSpotCheckerCmd = &cobra.Command{
 			Carrier:     os.Getenv("TO_PHONE_CARRIER"),
 		}
 
-		log.Info().Msg("Checking for spots...")
-		var (
-			startExecTime = time.Now()
-			foundSpot     bool
-			explanation   string
-		)
-		foundSpot, explanation, err = checkAvailability(swimSchoolURL, model)
+		c := cron.New()
+		rawCron := os.Getenv("SCHEDULE")
+		schedule, err := cron.ParseStandard(rawCron)
 		if err != nil {
+			log.Err(err).Msg("Failed to parse schedule")
 			return
 		}
-
-		if foundSpot {
-			log.Info().Msgf("Spot found (in %s)", time.Since(startExecTime))
-			if !skipNotifications {
-				err = notifier.Text(
-					notification.Sms{Body: fmt.Sprintf("%s\n\nGo check it out: %s", explanation, swimSchoolURL)},
-					recipient,
-				)
-				if err != nil {
-					log.Err(err).Msg("Failed to send SMS")
-				} else {
-					log.Info().Msg("SMS sent successfully!")
-				}
+		c.Schedule(schedule, cron.FuncJob(func() {
+			err := check(model, notifier, recipient)
+			if err != nil {
+				log.Err(err).Msg("Failed to check for spots")
 			}
-		} else {
-			log.Info().Msgf("No spot found (in %s)", time.Since(startExecTime))
+			log.Info().Msgf("Next execution at %s", schedule.Next(time.Now()))
+		}))
+		log.Info().Msgf("Scheduled to run with cron %s, next execution at %s", rawCron, schedule.Next(time.Now()))
+		c.Run()
 
-			// fixme: we don't want notifications here!
-			if !skipNotifications {
-				err = notifier.Text(
-					notification.Sms{Body: "nothing new"},
-					recipient,
-				)
-				if err != nil {
-					log.Err(err).Msg("Failed to send SMS")
-				} else {
-					log.Info().Msg("SMS sent successfully!")
-				}
-			}
-		}
-
+		log.Info().Msg("Bye!")
 		return
 	},
 }
 
-func checkAvailability(url string, model *llm.Model) (foundSpot bool, explanation string, err error) {
+func check(model *llm.Model, notifier notification.Notifier, recipient notification.Recipient) (err error) {
+	log.Info().Msg("Checking for spots...")
 	var (
-		oldContent string
-		newContent string
+		startExecTime = time.Now()
+		foundSpot     bool
+		explanation   string
 	)
-	newContent, err = extractContentFromURL(url)
+	foundSpot, explanation, err = swim.CheckAvailability(swimSchoolURL, model)
 	if err != nil {
 		return
 	}
 
-	oldContent, err = loadPreviousContent()
-	if err != nil {
-		return
-	}
-
-	if oldContent == "" {
-		log.Info().Msgf("No previous content found, saving current content")
-		err = storePreviousContent(newContent)
-		return
-	}
-
-	if oldContent == newContent {
-		log.Info().Msg("No change in content")
-		return
-	}
-
-	foundSpot, explanation, err = swim.CheckAvailability(context.Background(), model, oldContent, newContent)
-	if err == nil {
-		log.Info().Msgf("Availability check result: %t", foundSpot)
-		log.Info().Msgf("Explanation: %s", explanation)
-
-		err = storePreviousContent(newContent)
-	}
-
-	return
-}
-
-func extractContentFromURL(url string) (content string, err error) {
-	content, err = http.ScrapURL(url)
-	if err != nil {
-		return
-	}
-
-	startIndex := strings.Index(content, startMarker)
-	if startIndex == -1 {
-		err = fmt.Errorf("start marker not found")
-		return
-	}
-	endIndex := strings.Index(content, endMarker)
-	if endIndex == -1 {
-		err = fmt.Errorf("end marker not found")
-		return
-	}
-	content = strings.TrimSpace(content[startIndex+len(startMarker) : endIndex])
-
-	return
-}
-
-func loadPreviousContent() (content string, err error) {
-	var b []byte
-	b, err = os.ReadFile(previousContent)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			err = nil
+	if foundSpot {
+		log.Info().Msgf("Spot found (in %s)", time.Since(startExecTime))
+		if !skipNotifications {
+			err = notifier.Text(
+				notification.Sms{Body: fmt.Sprintf("%s\n\nGo check it out: %s", explanation, swimSchoolURL)},
+				recipient,
+			)
+			if err != nil {
+				log.Err(err).Msg("Failed to send SMS")
+			} else {
+				log.Info().Msg("SMS sent successfully!")
+			}
 		}
-		return
-	}
-	content = string(b)
-	return
-}
+	} else {
+		log.Info().Msgf("No spot found (in %s)", time.Since(startExecTime))
 
-func storePreviousContent(content string) (err error) {
-	err = os.WriteFile(previousContent, []byte(content), 0644)
+		// fixme: we don't want notifications here!
+		if !skipNotifications {
+			err = notifier.Text(
+				notification.Sms{Body: "nothing new"},
+				recipient,
+			)
+			if err != nil {
+				log.Err(err).Msg("Failed to send SMS")
+			} else {
+				log.Info().Msg("SMS sent successfully!")
+			}
+		}
+	}
+
 	return
 }
 

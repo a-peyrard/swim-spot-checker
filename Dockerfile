@@ -13,12 +13,4 @@ RUN mkdir -p app
 WORKDIR /app
 COPY --from=build /src/out/bin/swim-spot-checker /app/
 
-RUN apk update && apk add --no-cache dcron tini
-
-RUN echo "* * * * * /app/swim-spot-checker >> /var/log/cron.log 2>&1" > /etc/crontabs/root
-
-VOLUME /var/log
-
-ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["crond", "-f"]
-
+CMD ["/app/swim-spot-checker"]
