@@ -103,19 +103,6 @@ func check(model *llm.Model, notifier notification.Notifier, recipient notificat
 		}
 	} else {
 		log.Info().Msgf("No spot found (in %s)", time.Since(startExecTime))
-
-		// fixme: we don't want notifications here!
-		if !skipNotifications {
-			err = notifier.Text(
-				notification.Sms{Body: "nothing new"},
-				recipient,
-			)
-			if err != nil {
-				log.Err(err).Msg("Failed to send SMS")
-			} else {
-				log.Info().Msg("SMS sent successfully!")
-			}
-		}
 	}
 
 	return
