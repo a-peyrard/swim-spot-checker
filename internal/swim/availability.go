@@ -22,18 +22,19 @@ func CheckAvailability(url string, model *llm.Model) (foundSpot bool, explanatio
 	var (
 		oldContent string
 		newContent string
+		found      bool
 	)
 	newContent, err = extractContentFromURL(url)
 	if err != nil {
 		return
 	}
 
-	oldContent, err = loadPreviousContent()
+	oldContent, found, err = loadPreviousContent()
 	if err != nil {
 		return
 	}
 
-	if oldContent == "" {
+	if !found {
 		log.Info().Msgf("No previous content found, saving current content")
 		err = storePreviousContent(newContent)
 		return
@@ -76,15 +77,17 @@ func extractContentFromURL(url string) (content string, err error) {
 	return
 }
 
-func loadPreviousContent() (content string, err error) {
+func loadPreviousContent() (content string, found bool, err error) {
 	var b []byte
 	b, err = os.ReadFile(previousContent)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			err = nil
+			found = false
 		}
 		return
 	}
+	found = true
 	content = string(b)
 	return
 }
