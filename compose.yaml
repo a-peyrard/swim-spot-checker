@@ -8,3 +8,5 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SCHEDULE: ${SCHEDULE}
+    volumes:
+      - ./data/previous_content:/tmp/previous_content
