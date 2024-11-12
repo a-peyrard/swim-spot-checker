@@ -34,6 +34,9 @@ func CheckAvailability(url string, model *llm.Model) (foundSpot bool, explanatio
 		return
 	}
 
+	log.Debug().Msgf("Old content: %s", oldContent)
+	log.Debug().Msgf("New content: %s", newContent)
+
 	if !found {
 		log.Info().Msgf("No previous content found, saving current content")
 		err = storePreviousContent(newContent)
