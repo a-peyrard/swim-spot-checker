@@ -4,20 +4,7 @@ import (
 	"fmt"
 	"github.com/wneessen/go-mail"
 	"os"
-	"strings"
 )
-
-var carrierDomains = map[string]string{
-	"att":        "txt.att.net",
-	"verizon":    "vtext.com",
-	"tmobile":    "tmomail.net",
-	"sprint":     "messaging.sprintpcs.com",
-	"boost":      "sms.myboostmobile.com",
-	"cricket":    "sms.cricketwireless.net",
-	"metropcs":   "mymetropcs.com",
-	"uscellular": "email.uscc.net",
-	"virgin":     "vmobl.com",
-}
 
 type (
 	emailNotifier struct {
@@ -33,28 +20,16 @@ func NewEmailNotifier() Notifier {
 	}
 }
 
-func toEmail(recipient Recipient) (string, error) {
-	domain, found := carrierDomains[strings.ToLower(recipient.Carrier)]
-	if !found {
-		return "", fmt.Errorf("carrier domain not found for %s", recipient.Carrier)
-	}
-	return recipient.PhoneNumber + "@" + domain, nil
-}
-
-func (e *emailNotifier) Text(sms Sms, recipient Recipient) error {
+func (e *emailNotifier) Notify(msg Message, recipient Recipient) error {
 	message := mail.NewMsg()
 	if err := message.From(e.smtpUser); err != nil {
 		return fmt.Errorf("failed to set FROM address: %w", err)
 	}
-	recipientEmail, err := toEmail(recipient)
-	if err != nil {
-		return fmt.Errorf("failed to convert recipient to email: %w", err)
-	}
-	if err := message.To(recipientEmail); err != nil {
+	if err := message.To(recipient.Email); err != nil {
 		return fmt.Errorf("failed to set TO address: %w", err)
 	}
-	message.Subject("")
-	message.SetBodyString(mail.TypeTextPlain, sms.Body)
+	message.Subject(msg.Subject)
+	message.SetBodyString(mail.TypeTextPlain, msg.Body)
 
 	client, err := mail.NewClient("smtp.gmail.com",
 		mail.WithPort(587),

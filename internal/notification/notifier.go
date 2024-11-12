@@ -2,15 +2,17 @@ package notification
 
 type (
 	Recipient struct {
-		Carrier     string
-		PhoneNumber string
+		Carrier     string `json:"carrier"`
+		PhoneNumber string `json:"phone_number"`
+		Email       string `json:"email"`
 	}
 
-	Sms struct {
-		Body string
+	Message struct {
+		Subject string
+		Body    string
 	}
 
 	Notifier interface {
-		Text(sms Sms, recipient Recipient) error
+		Notify(msg Message, recipient Recipient) error
 	}
 )

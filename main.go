@@ -49,10 +49,7 @@ var swimSpotCheckerCmd = &cobra.Command{
 		}
 
 		notifier := notification.NewEmailNotifier()
-		recipient := notification.Recipient{
-			PhoneNumber: os.Getenv("TO_PHONE_NUMBER"),
-			Carrier:     os.Getenv("TO_PHONE_CARRIER"),
-		}
+		recipients := notification.ParseRecipients(os.Getenv("RECIPIENTS"))
 
 		c := cron.New()
 		rawCron := os.Getenv("SCHEDULE")
@@ -62,7 +59,7 @@ var swimSpotCheckerCmd = &cobra.Command{
 			return
 		}
 		c.Schedule(schedule, cron.FuncJob(func() {
-			err := check(model, notifier, recipient)
+			err := check(model, notifier, recipients)
 			if err != nil {
 				log.Err(err).Msg("Failed to check for spots")
 			}
@@ -76,7 +73,7 @@ var swimSpotCheckerCmd = &cobra.Command{
 	},
 }
 
-func check(model *llm.Model, notifier notification.Notifier, recipient notification.Recipient) (err error) {
+func check(model *llm.Model, notifier notification.Notifier, recipients []notification.Recipient) (err error) {
 	log.Info().Msg("Checking for spots...")
 	var (
 		startExecTime = time.Now()
@@ -91,14 +88,19 @@ func check(model *llm.Model, notifier notification.Notifier, recipient notificat
 	if foundSpot {
 		log.Info().Msgf("Spot found (in %s)", time.Since(startExecTime))
 		if !skipNotifications {
-			err = notifier.Text(
-				notification.Sms{Body: fmt.Sprintf("%s\n\nGo check it out: %s", explanation, swimSchoolURL)},
-				recipient,
-			)
-			if err != nil {
-				log.Err(err).Msg("Failed to send SMS")
-			} else {
-				log.Info().Msg("SMS sent successfully!")
+			message := notification.Message{
+				Body: fmt.Sprintf("%s\n\nGo check it out: %s", explanation, swimSchoolURL),
+			}
+			for _, recipient := range recipients {
+				err = notifier.Notify(
+					message,
+					recipient,
+				)
+				if err != nil {
+					log.Err(err).Msgf("Failed to send notification to recipient %s", recipient.Email)
+				} else {
+					log.Info().Msgf("Notification sent successfully to recipient %s!", recipient.Email)
+				}
 			}
 		}
 	} else {

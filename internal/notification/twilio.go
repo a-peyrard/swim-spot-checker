@@ -16,7 +16,7 @@ func NewTwilioNotifier() Notifier {
 	return &twilioNotifier{}
 }
 
-func (t *twilioNotifier) Text(sms Sms, recipient Recipient) error {
+func (t *twilioNotifier) Notify(sms Message, recipient Recipient) error {
 	client := twilio.NewRestClient()
 
 	params := &openapi.CreateMessageParams{}
