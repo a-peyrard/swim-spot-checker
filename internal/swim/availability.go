@@ -141,8 +141,7 @@ func checkAvailabilityFromContent(
 	}
 
 	log.Debug().Msgf("Model response: <%s>", rawResponse)
-
-	err = json.Unmarshal([]byte(rawResponse), &response)
+	response, err = sanitizeAndParseResponse(rawResponse)
 	if err != nil {
 		err = fmt.Errorf("unable to parse model response: %s, because of %w", rawResponse, err)
 		return
@@ -170,5 +169,17 @@ func extractVar[T any](m map[string]any, field string) (value T, found bool, ok 
 	}
 
 	value, ok = anyValue.(T)
+	return
+}
+
+func sanitizeAndParseResponse(rawResponse string) (response map[string]any, err error) {
+	if strings.HasPrefix(rawResponse, "```json") {
+		rawResponse = strings.TrimPrefix(rawResponse, "```json")
+		rawResponse = rawResponse[:strings.Index(rawResponse, "```")]
+
+		log.Debug().Msgf("Sanitized response: <%s>", rawResponse)
+	}
+
+	err = json.Unmarshal([]byte(rawResponse), &response)
 	return
 }
